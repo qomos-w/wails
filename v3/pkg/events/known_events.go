@@ -192,6 +192,7 @@ var knownEvents = map[string]struct{}{
 	"windows:ApplicationStarted":                                  {},
 	"windows:SystemThemeChanged":                                  {},
 	"windows:WebViewNavigationCompleted":                          {},
+	"windows:WebViewNavigationStarting":                           {},
 	"windows:WindowActive":                                        {},
 	"windows:WindowBackgroundErase":                               {},
 	"windows:WindowClickActive":                                   {},

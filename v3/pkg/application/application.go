@@ -896,7 +896,7 @@ func (a *App) handleWindowEvent(event *windowEvent) {
 		a.debug("Window event for unknown window", "windowID", event.WindowID, "eventID", event.EventID)
 		return
 	}
-	window.HandleWindowEvent(event.EventID)
+	window.HandleWindowEvent(event.EventID, event.Ctx)
 }
 
 // OnShutdown adds a function to be run when the application is shutting down.
@@ -991,6 +991,23 @@ func (a *App) dispatchOnMainThread(fn func()) {
 	mainThreadFunctionStoreLock.Unlock()
 	// Call platform specific dispatch function
 	a.impl.dispatchOnMainThread(id)
+}
+
+// InvokeOnMainThread dispatches fn to the main UI thread and blocks until it
+// completes. Required for operations that must run on the thread owning the
+// app windows — e.g. Win32 OLE DoDragDrop, whose modal loop is driven by the
+// calling thread's message queue and wedges on any other thread.
+func (a *App) InvokeOnMainThread(fn func()) {
+	if a.impl.isOnMainThread() {
+		fn()
+		return
+	}
+	done := make(chan struct{})
+	a.dispatchOnMainThread(func() {
+		defer close(done)
+		fn()
+	})
+	<-done
 }
 
 func (a *App) Hide() {

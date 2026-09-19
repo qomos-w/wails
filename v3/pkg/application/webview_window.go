@@ -79,6 +79,8 @@ type (
 		setFrameless(bool)
 		openContextMenu(menu *Menu, data *ContextMenuData)
 		nativeWindow() unsafe.Pointer
+		getDocumentTitle() string
+		getSource() string
 		startDrag() error
 		startResize(border string) error
 		print() error
@@ -116,6 +118,10 @@ type (
 		setContentProtection(enabled bool)
 		attachModal(modalWindow *WebviewWindow)
 		setNonClientHitTestRegions([]nonClientHitTestRegion)
+		goBack()
+		goForward()
+		canGoBack() bool
+		canGoForward() bool
 	}
 
 	nonClientHitTestKind string
@@ -189,6 +195,9 @@ type WebviewWindow struct {
 	// keyBindings holds the keybindings for the window
 	keyBindings     map[string]func(Window)
 	keyBindingsLock sync.RWMutex
+
+	// MessageHandler is called for all non-internal messages sent from the webview via postMessage.
+	MessageHandler func(message string)
 
 	// menuBindings holds the menu bindings for the window
 	menuBindings     map[string]*MenuItem
@@ -544,6 +553,32 @@ func (w *WebviewWindow) SetURL(s string) Window {
 	return w
 }
 
+func (w *WebviewWindow) GoBack() {
+	if w.impl != nil {
+		InvokeSync(w.impl.goBack)
+	}
+}
+
+func (w *WebviewWindow) GoForward() {
+	if w.impl != nil {
+		InvokeSync(w.impl.goForward)
+	}
+}
+
+func (w *WebviewWindow) CanGoBack() bool {
+	if w.impl != nil {
+		return InvokeSyncWithResult(w.impl.canGoBack)
+	}
+	return false
+}
+
+func (w *WebviewWindow) CanGoForward() bool {
+	if w.impl != nil {
+		return InvokeSyncWithResult(w.impl.canGoForward)
+	}
+	return false
+}
+
 func (w *WebviewWindow) GetBorderSizes() *LRTB {
 	if w.impl != nil {
 		return InvokeSyncWithResult(w.impl.getBorderSizes)
@@ -876,7 +911,11 @@ func (w *WebviewWindow) HandleMessage(message string) {
 		evt := &CustomEvent{Name: name, Sender: w.Name()}
 		globalApplication.Event.EmitEvent(evt)
 	default:
-		w.Error("unknown message sent via 'invoke' on frontend: %v", message)
+		if w.MessageHandler != nil {
+			w.MessageHandler(message)
+		} else {
+			w.Error("unknown message sent via 'invoke' on frontend: %v", message)
+		}
 	}
 }
 
@@ -986,14 +1025,14 @@ func (w *WebviewWindow) RegisterHook(
 	}
 }
 
-func (w *WebviewWindow) HandleWindowEvent(id uint) {
+func (w *WebviewWindow) HandleWindowEvent(id uint, ctx *WindowEventContext) {
 	// Get hooks
 	w.eventHooksLock.RLock()
 	hooks := w.eventHooks[id]
 	w.eventHooksLock.RUnlock()
 
 	// Create new WindowEvent
-	thisEvent := NewWindowEvent()
+	thisEvent := newWindowEventWithContext(ctx)
 
 	for _, thisHook := range hooks {
 		thisHook.callback(thisEvent)
@@ -1664,6 +1703,32 @@ func (w *WebviewWindow) NativeWindow() unsafe.Pointer {
 	return w.impl.nativeWindow()
 }
 
+// GetDocumentTitle returns the title of the currently loaded document.
+func (w *WebviewWindow) GetDocumentTitle() string {
+	if w.impl == nil || w.isDestroyed() {
+		return ""
+	}
+	var title string
+	InvokeSync(func() {
+		title = w.impl.getDocumentTitle()
+	})
+	return title
+}
+
+// Source returns the URL of the currently loaded document (post-redirect),
+// mirroring the ICoreWebView2 Source property. Empty when the webview is not
+// ready or destroyed.
+func (w *WebviewWindow) Source() string {
+	if w.impl == nil || w.isDestroyed() {
+		return ""
+	}
+	var src string
+	InvokeSync(func() {
+		src = w.impl.getSource()
+	})
+	return src
+}
+
 // AttachModal attaches a modal window to this window, presenting it as a sheet on macOS.
 func (w *WebviewWindow) AttachModal(modalWindow Window) {
 	if w.impl == nil || w.isDestroyed() {
@@ -1980,4 +2045,15 @@ func (w *WebviewWindow) SnapAssist() {
 		return
 	}
 	InvokeSync(w.impl.snapAssist)
+}
+
+// SetPreferredColorScheme sets the webview's preferred color scheme (dark mode)
+// so that pages honour the prefers-color-scheme CSS media query.
+func (w *WebviewWindow) SetPreferredColorScheme(dark bool) {
+	if w.impl == nil {
+		return
+	}
+	if setter, ok := w.impl.(interface{ setPreferredColorScheme(dark bool) }); ok {
+		setter.setPreferredColorScheme(dark)
+	}
 }

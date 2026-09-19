@@ -55,22 +55,22 @@ func (b *BrowserWindow) Info(message string, args ...any) {
 
 // No-op methods - these don't apply to browser windows
 
-func (b *BrowserWindow) Center()                                      {}
-func (b *BrowserWindow) Close()                                       {}
-func (b *BrowserWindow) DisableSizeConstraints()                      {}
-func (b *BrowserWindow) EnableSizeConstraints()                       {}
-func (b *BrowserWindow) ExecJS(js string)                             {}
-func (b *BrowserWindow) Focus()                                       {}
-func (b *BrowserWindow) ForceReload()                                 {}
-func (b *BrowserWindow) Fullscreen() Window                           { return b }
-func (b *BrowserWindow) GetBorderSizes() *LRTB                        { return nil }
-func (b *BrowserWindow) GetScreen() (*Screen, error)                  { return nil, nil }
-func (b *BrowserWindow) SetScreen(screen *Screen) Window              { return b }
-func (b *BrowserWindow) GetZoom() float64                             { return 1.0 }
+func (b *BrowserWindow) Center()                                                                    {}
+func (b *BrowserWindow) Close()                                                                     {}
+func (b *BrowserWindow) DisableSizeConstraints()                                                    {}
+func (b *BrowserWindow) EnableSizeConstraints()                                                     {}
+func (b *BrowserWindow) ExecJS(js string)                                                           {}
+func (b *BrowserWindow) Focus()                                                                     {}
+func (b *BrowserWindow) ForceReload()                                                               {}
+func (b *BrowserWindow) Fullscreen() Window                                                         { return b }
+func (b *BrowserWindow) GetBorderSizes() *LRTB                                                      { return nil }
+func (b *BrowserWindow) GetScreen() (*Screen, error)                                                { return nil, nil }
+func (b *BrowserWindow) SetScreen(screen *Screen) Window                                            { return b }
+func (b *BrowserWindow) GetZoom() float64                                                           { return 1.0 }
 func (b *BrowserWindow) handleDragAndDropMessage(filenames []string, dropTarget *DropTargetDetails) {}
 func (b *BrowserWindow) InitiateFrontendDropProcessing(filenames []string, x int, y int)            {}
 func (b *BrowserWindow) HandleMessage(message string)                                               {}
-func (b *BrowserWindow) HandleWindowEvent(id uint)                                                  {}
+func (b *BrowserWindow) HandleWindowEvent(id uint, ctx *WindowEventContext)                         {}
 func (b *BrowserWindow) Height() int                                                                { return 0 }
 func (b *BrowserWindow) Hide() Window                                                               { return b }
 func (b *BrowserWindow) HideMenuBar()                                                               {}

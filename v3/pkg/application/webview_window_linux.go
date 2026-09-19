@@ -466,6 +466,14 @@ func (w *linuxWebviewWindow) nativeWindow() unsafe.Pointer {
 	return unsafe.Pointer(w.window)
 }
 
+func (w *linuxWebviewWindow) getDocumentTitle() string {
+	return ""
+}
+
+func (w *linuxWebviewWindow) getSource() string {
+	return ""
+}
+
 func (w *linuxWebviewWindow) attachModal(modalWindow *WebviewWindow) {
 	// Modal windows are not supported on Linux
 }

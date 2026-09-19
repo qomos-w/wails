@@ -427,6 +427,11 @@ func (w *iosWebviewWindow) setURL(url string) {
 	C.free(unsafe.Pointer(cstr))
 }
 
+func (w *iosWebviewWindow) goBack()            {}
+func (w *iosWebviewWindow) goForward()         {}
+func (w *iosWebviewWindow) canGoBack() bool    { return false }
+func (w *iosWebviewWindow) canGoForward() bool { return false }
+
 func (w *iosWebviewWindow) showMenuBar() {
 	// iOS doesn't have menu bars like desktop platforms
 }

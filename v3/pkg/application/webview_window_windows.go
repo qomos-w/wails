@@ -64,6 +64,13 @@ type windowsWebviewWindow struct {
 	// the re-enable exists to avoid. Main-thread only.
 	monitorScaleDetectionOn bool
 
+	// Navigation command correlation (browser-navigation contract §2.5.2 / §11.A).
+	// navTracker correlates host Navigate/GoBack/GoForward/Reload commands with
+	// the top-level NavigationStarting they produce, via per-window commandTokens.
+	navTracker   navCommandTracker
+	noNavTimer   *time.Timer
+	noNavTimeout time.Duration
+
 	// Window visibility management - robust fallback for issue #2861
 	showRequested     bool        // Track if show() was called before navigation completed
 	visibilityTimeout *time.Timer // Timeout to show window if navigation is delayed
@@ -343,6 +350,28 @@ func (w *windowsWebviewWindow) nativeWindow() unsafe.Pointer {
 	return unsafe.Pointer(w.hwnd)
 }
 
+func (w *windowsWebviewWindow) getDocumentTitle() string {
+	if w.chromium == nil {
+		return ""
+	}
+	title, err := w.chromium.GetDocumentTitle()
+	if err != nil {
+		return ""
+	}
+	return title
+}
+
+func (w *windowsWebviewWindow) getSource() string {
+	if w.chromium == nil {
+		return ""
+	}
+	src, err := w.chromium.Source()
+	if err != nil {
+		return ""
+	}
+	return src
+}
+
 func (w *windowsWebviewWindow) setTitle(title string) {
 	w32.SetWindowText(w.hwnd, title)
 }
@@ -366,7 +395,51 @@ func (w *windowsWebviewWindow) setAlwaysOnTop(alwaysOnTop bool) {
 func (w *windowsWebviewWindow) setURL(url string) {
 	// Navigate to the given URL in the webview
 	w.webviewNavigationCompleted = false
+	token := w.navTracker.beginCommand("navigate")
 	w.chromium.Navigate(url)
+	w.armNoNavTimer(token)
+}
+
+func (w *windowsWebviewWindow) goBack() {
+	if w.chromium == nil {
+		return
+	}
+	token := w.navTracker.beginCommand("back")
+	// GoBack produces no top-level navigation when there is nothing to go back
+	// to; resolve as an explicit no-navigation correlation answer (§2.5.2.4).
+	if !w.chromium.CanGoBack() {
+		w.resolveNoNavigation(token)
+		return
+	}
+	w.chromium.GoBack()
+	w.armNoNavTimer(token)
+}
+
+func (w *windowsWebviewWindow) goForward() {
+	if w.chromium == nil {
+		return
+	}
+	token := w.navTracker.beginCommand("forward")
+	if !w.chromium.CanGoForward() {
+		w.resolveNoNavigation(token)
+		return
+	}
+	w.chromium.GoForward()
+	w.armNoNavTimer(token)
+}
+
+func (w *windowsWebviewWindow) canGoBack() bool {
+	if w.chromium == nil {
+		return false
+	}
+	return w.chromium.CanGoBack()
+}
+
+func (w *windowsWebviewWindow) canGoForward() bool {
+	if w.chromium == nil {
+		return false
+	}
+	return w.chromium.CanGoForward()
 }
 
 func (w *windowsWebviewWindow) setResizable(resizable bool) {
@@ -907,7 +980,14 @@ func (w *windowsWebviewWindow) destroy() {
 }
 
 func (w *windowsWebviewWindow) reload() {
-	w.execJS("window.location.reload();")
+	if w.chromium == nil {
+		return
+	}
+	// Reload via the WebView2 host primitive so it is correlated as a host
+	// command (commandToken) rather than a page-initiated navigation.
+	token := w.navTracker.beginCommand("reload")
+	w.chromium.Reload()
+	w.armNoNavTimer(token)
 }
 
 func (w *windowsWebviewWindow) forceReload() {
@@ -2354,18 +2434,20 @@ func (w *windowsWebviewWindow) processRequest(
 		useragent = strings.Join([]string{useragent, assetserver.WailsUserAgentValue}, " ")
 		err = reqHeaders.SetHeader(assetserver.HeaderUserAgent, useragent)
 		if err != nil {
-			globalApplication.fatal("error setting UserAgent header: %w", err)
+			// Cosmetic headers on a per-request COM path: transient
+			// failures must not kill the whole app.
+			globalApplication.error("error setting UserAgent header: %v", err)
 		}
 		err = reqHeaders.SetHeader(
 			webViewRequestHeaderWindowId,
 			strconv.FormatUint(uint64(w.parent.id), 10),
 		)
 		if err != nil {
-			globalApplication.fatal("error setting WindowId header: %w", err)
+			globalApplication.error("error setting WindowId header: %v", err)
 		}
 		err = reqHeaders.Release()
 		if err != nil {
-			globalApplication.fatal("error releasing headers: %w", err)
+			globalApplication.error("error releasing headers: %v", err)
 		}
 	}
 
@@ -2449,7 +2531,15 @@ func (w *windowsWebviewWindow) setupChromium() {
 		chromium.AdditionalBrowserArgs = append(chromium.AdditionalBrowserArgs, appOpts.AdditionalBrowserArgs...)
 	}
 
-	chromium.DataPath = globalApplication.options.Windows.WebviewUserDataPath
+	// Per-window browser args override/extend the application-level args.
+	if len(opts.AdditionalBrowserArgs) > 0 {
+		chromium.AdditionalBrowserArgs = append(chromium.AdditionalBrowserArgs, opts.AdditionalBrowserArgs...)
+	}
+	if w.parent.options.Windows.WebviewUserDataPath != "" {
+		chromium.DataPath = w.parent.options.Windows.WebviewUserDataPath
+	} else {
+		chromium.DataPath = globalApplication.options.Windows.WebviewUserDataPath
+	}
 	chromium.BrowserPath = globalApplication.options.Windows.WebviewBrowserPath
 
 	// Apply the cross-platform Permissions map first; the WebView2-specific
@@ -2669,6 +2759,9 @@ func (w *windowsWebviewWindow) navigateInitialPage() {
 		chromium.NavigateToString(w.parent.options.HTML)
 	} else {
 		startURL, err := assetserver.GetStartURL(w.parent.options.URL)
+		if w.parent.options.JS != "" {
+			chromium.Init(w.parent.options.JS)
+		}
 		if err != nil {
 			globalApplication.handleFatalError(err)
 		}
@@ -2684,7 +2777,10 @@ func (w *windowsWebviewWindow) fullscreenChanged(
 ) {
 	isFullscreen, err := sender.GetContainsFullScreenElement()
 	if err != nil {
-		globalApplication.fatal("fatal error in callback fullscreenChanged: %w", err)
+		// A transient COM failure while a page toggles fullscreen video
+		// must skip the state change, not kill the app.
+		globalApplication.error("fullscreenChanged callback failed to read state: %v", err)
+		return
 	}
 	if isFullscreen {
 		w.fullscreen()
@@ -2695,10 +2791,6 @@ func (w *windowsWebviewWindow) fullscreenChanged(
 
 func (w *windowsWebviewWindow) flash(enabled bool) {
 	w32.FlashWindow(w.hwnd, enabled)
-}
-
-func (w *windowsWebviewWindow) navigationStarting(_ *edge.ICoreWebView2) {
-	w.setNonClientHitTestRegions(nil)
 }
 
 func (w *windowsWebviewWindow) navigationCompleted(
@@ -2716,8 +2808,32 @@ func (w *windowsWebviewWindow) navigationCompleted(
 	)
 	w.execJS(js)
 
-	// EmitEvent DomReady ApplicationEvent
-	windowEvents <- &windowEvent{EventID: uint(events.Windows.WebViewNavigationCompleted), WindowID: w.parent.id}
+	// Emit NavigationCompleted with the commit-boundary payload (§3 / §11.A):
+	// NavigationId, post-redirect final URL (GetSource), success status and
+	// WebErrorStatus. These let the host attribute and commit the navigation.
+	var completedNavID uint64
+	var completedSuccess bool
+	var completedErrStatus int32
+	if args != nil {
+		if v, err := args.GetNavigationId(); err == nil {
+			completedNavID = v
+		}
+		if v, err := args.GetIsSuccess(); err == nil {
+			completedSuccess = v
+		}
+		if v, err := args.GetWebErrorStatus(); err == nil {
+			completedErrStatus = v
+		}
+	}
+	var completedURL string
+	if sender != nil {
+		if v, err := sender.GetSource(); err == nil {
+			completedURL = v
+		}
+	}
+	completedCtx := newWindowEventContext()
+	completedCtx.setNavigationCompleted(completedNavID, completedURL, completedSuccess, completedErrStatus)
+	windowEvents <- &windowEvent{EventID: uint(events.Windows.WebViewNavigationCompleted), WindowID: w.parent.id, Ctx: completedCtx}
 
 	if w.webviewNavigationCompleted {
 		// NavigationCompleted is triggered for every Load. If an application uses reloads the Hide/Show will trigger
@@ -2765,8 +2881,112 @@ func (w *windowsWebviewWindow) navigationCompleted(
 	// re-asserts IsVisible(true) when the window is actually shown.
 	// showRequested is initialised to !options.Hidden and only show()/hide()
 	// flip it, so these two flags alone identify both cases.
-	if !w.windowShown && !w.showRequested {
-		_ = w.chromium.Hide()
+	// sporemind fork: upstream re-hides the controller here for windows that
+	// were never shown (to avoid an input-surface dead zone for hidden tray
+	// popups). But WebView2 suspends rendering for an invisible controller,
+	// which freezes page boot — rAF/paint never fire — in host apps that
+	// create hidden windows and reveal them after the page reports it
+	// painted. Those hosts never observe paint, so the window can never be
+	// shown: deadlock. Keep the controller visible; a live hit-test surface
+	// on a hidden window is the lesser evil.
+}
+
+// navigationStarting is the WebView2 NavigationStarting callback (§11.A). It
+// emits a NavigationStarting window event carrying the native NavigationId, the
+// requested URI, redirect/user-gesture flags, and the host-command correlation
+// token (§2.5.2). Only the first hop of a navigation (IsRedirected==false)
+// consumes the expecting token; redirect hops reuse the originating identity and
+// leave the token untouched.
+func (w *windowsWebviewWindow) navigationStarting(
+	sender *edge.ICoreWebView2,
+	args *edge.ICoreWebView2NavigationStartingEventArgs,
+) {
+	w.setNonClientHitTestRegions(nil)
+
+	// Show the window container as soon as the FIRST navigation starts instead
+	// of waiting for it to complete. Heavy external pages (the browser-window
+	// use case of this fork) can take 5-10s+ until NavigationCompleted —
+	// earlier versions only showed at completion, so a window that stays
+	// invisible for that long looks like a failed "open". The white-flash
+	// concern is handled by show()'s deferred chromium.Show() fallback.
+	if !w.parent.options.Hidden && w.showRequested && !w.windowShown {
+		w.parent.Show()
+	}
+
+	var navID uint64
+	var uri string
+	var isRedirected bool
+	var isUserInitiated bool
+	if args != nil {
+		if v, err := args.GetNavigationId(); err == nil {
+			navID = v
+		}
+		if v, err := args.GetUri(); err == nil {
+			uri = v
+		}
+		if v, err := args.GetIsRedirected(); err == nil {
+			isRedirected = v
+		}
+		if v, err := args.GetIsUserInitiated(); err == nil {
+			isUserInitiated = v
+		}
+	}
+
+	var commandToken uint64
+	if !isRedirected {
+		if token, ok := w.navTracker.consumeStarting(); ok {
+			commandToken = token
+			if w.noNavTimer != nil {
+				w.noNavTimer.Stop()
+				w.noNavTimer = nil
+			}
+		}
+	}
+
+	ctx := newWindowEventContext()
+	ctx.setNavigationStarting(navID, uri, isRedirected, isUserInitiated, commandToken)
+	windowEvents <- &windowEvent{
+		EventID:  uint(events.Windows.WebViewNavigationStarting),
+		WindowID: w.parent.id,
+		Ctx:      ctx,
+	}
+}
+
+// noNavTimeoutDefault is the fallback window after which a host navigation
+// command that produced no top-level NavigationStarting is resolved as a
+// "no navigation" correlation answer. Real Starting events fire within
+// milliseconds; this only guards the rare case where a Navigate/Reload produces
+// no navigation at all.
+const noNavTimeoutDefault = 5 * time.Second
+
+// armNoNavTimer (re)arms the no-navigation fallback for the given token. If the
+// timer fires before a first-hop NavigationStarting consumes the token, a
+// no-navigation correlation answer is emitted.
+func (w *windowsWebviewWindow) armNoNavTimer(token uint64) {
+	timeout := w.noNavTimeout
+	if timeout <= 0 {
+		timeout = noNavTimeoutDefault
+	}
+	if w.noNavTimer != nil {
+		w.noNavTimer.Stop()
+	}
+	w.noNavTimer = time.AfterFunc(timeout, func() {
+		if t, ok := w.navTracker.clearExpecting(); ok && t == token {
+			w.resolveNoNavigation(t)
+		}
+	})
+}
+
+// resolveNoNavigation emits an explicit no-navigation correlation answer
+// (NavigationStarting event with NavStarted=false) for a host command that
+// produced no top-level navigation (§2.5.2 step 4).
+func (w *windowsWebviewWindow) resolveNoNavigation(token uint64) {
+	ctx := newWindowEventContext()
+	ctx.setNoNavigation(token)
+	windowEvents <- &windowEvent{
+		EventID:  uint(events.Windows.WebViewNavigationStarting),
+		WindowID: w.parent.id,
+		Ctx:      ctx,
 	}
 }
 
@@ -3080,4 +3300,48 @@ func (w *windowsWebviewWindow) applyDisplayAffinity(affinity uint32) bool {
 		return false
 	}
 	return true
+}
+
+func (w *windowsWebviewWindow) setPreferredColorScheme(dark bool) {
+	if w.chromium == nil {
+		return
+	}
+	globalApplication.dispatchOnMainThread(func() {
+		_ = w.chromium.SetPreferredColorScheme(dark)
+	})
+}
+
+// ErrWebviewWindowNotStarted is returned by GetCookieManager when the window's
+// platform Run() has not executed yet. Windows created before the application
+// event loop starts are deferred via pendingRun, so this state is transient
+// during startup — callers should retry on this error with a longer budget.
+var ErrWebviewWindowNotStarted = errors.New("webview window not started yet")
+
+// GetCookieManager returns the WebView2 cookie manager for this window.
+//
+// The returned manager is a new COM reference owned by the caller; Release it
+// when done. ICoreWebView2_2::get_CookieManager is thread-affine to the thread
+// that created the webview (the app main thread), so the underlying chromium
+// call is marshaled there via InvokeSync. Errors distinguish the failure
+// modes: ErrWebviewWindowNotStarted (window Run deferred, retry later — this
+// check is synchronous so callers can poll cheaply during startup),
+// "chromium not initialized" (Run started but the platform webview was not
+// created), and the underlying chromium error (webview not initialized /
+// runtime version missing / ICoreWebView2_2 query failure with its HRESULT).
+func (w *WebviewWindow) GetCookieManager() (*edge.ICoreWebView2CookieManager, error) {
+	if w.impl == nil {
+		return nil, ErrWebviewWindowNotStarted
+	}
+	ww, ok := w.impl.(*windowsWebviewWindow)
+	if !ok || ww.chromium == nil {
+		return nil, errors.New("chromium not initialized")
+	}
+	var (
+		cm  *edge.ICoreWebView2CookieManager
+		err error
+	)
+	InvokeSync(func() {
+		cm, err = ww.chromium.GetCookieManager()
+	})
+	return cm, err
 }

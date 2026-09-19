@@ -487,6 +487,10 @@ func (w *serverWebviewWindow) setTitle(title string)           {}
 func (w *serverWebviewWindow) setSize(width, height int)       {}
 func (w *serverWebviewWindow) setAlwaysOnTop(alwaysOnTop bool) {}
 func (w *serverWebviewWindow) setURL(url string)               {}
+func (w *serverWebviewWindow) goBack()                         {}
+func (w *serverWebviewWindow) goForward()                      {}
+func (w *serverWebviewWindow) canGoBack() bool                 { return false }
+func (w *serverWebviewWindow) canGoForward() bool              { return false }
 func (w *serverWebviewWindow) setResizable(resizable bool)     {}
 func (w *serverWebviewWindow) setMinSize(width, height int)    {}
 func (w *serverWebviewWindow) setMaxSize(width, height int)    {}

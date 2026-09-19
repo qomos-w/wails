@@ -42,6 +42,7 @@ var applicationEvents = make(chan *ApplicationEvent, 5)
 type windowEvent struct {
 	WindowID uint
 	EventID  uint
+	Ctx      *WindowEventContext
 }
 
 var windowEvents = make(chan *windowEvent, 5)

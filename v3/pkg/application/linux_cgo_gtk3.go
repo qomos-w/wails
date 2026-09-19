@@ -1767,6 +1767,11 @@ func (w *linuxWebviewWindow) setURL(uri string) {
 	C.free(unsafe.Pointer(target))
 }
 
+func (w *linuxWebviewWindow) goBack()            {}
+func (w *linuxWebviewWindow) goForward()         {}
+func (w *linuxWebviewWindow) canGoBack() bool    { return false }
+func (w *linuxWebviewWindow) canGoForward() bool { return false }
+
 //export emit
 func emit(we *C.WindowEvent) {
 	window, _ := globalApplication.Window.GetByID(uint(we.id))

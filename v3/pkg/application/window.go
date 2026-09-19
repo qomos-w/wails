@@ -24,7 +24,7 @@ type Window interface {
 	handleDragAndDropMessage(filenames []string, dropTarget *DropTargetDetails)
 	InitiateFrontendDropProcessing(filenames []string, x int, y int)
 	HandleMessage(message string)
-	HandleWindowEvent(id uint)
+	HandleWindowEvent(id uint, ctx *WindowEventContext)
 	Height() int
 	Hide() Window
 	HideMenuBar()

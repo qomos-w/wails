@@ -434,6 +434,14 @@ type WindowsWindow struct {
 
 	// PasswordAutosaveEnabled enables autosaving passwords
 	PasswordAutosaveEnabled bool
+
+	// WebviewUserDataPath overrides the application-level WebView2 user data folder
+	// for this specific window. If empty, falls back to the global option.
+	WebviewUserDataPath string
+
+	// AdditionalBrowserArgs are appended to the WebView2 command line for this
+	// specific window, after the application-level args.
+	AdditionalBrowserArgs []string
 }
 
 type Theme int

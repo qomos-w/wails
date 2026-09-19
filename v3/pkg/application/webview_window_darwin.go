@@ -1446,6 +1446,11 @@ func (w *macosWebviewWindow) setURL(uri string) {
 	C.navigationLoadURL(w.nsWindow, C.CString(uri))
 }
 
+func (w *macosWebviewWindow) goBack()            {}
+func (w *macosWebviewWindow) goForward()         {}
+func (w *macosWebviewWindow) canGoBack() bool    { return false }
+func (w *macosWebviewWindow) canGoForward() bool { return false }
+
 func (w *macosWebviewWindow) setAlwaysOnTop(alwaysOnTop bool) {
 	C.windowSetAlwaysOnTop(w.nsWindow, C.bool(alwaysOnTop))
 }
@@ -1780,6 +1785,14 @@ func (w *macosWebviewWindow) run() {
 
 func (w *macosWebviewWindow) nativeWindow() unsafe.Pointer {
 	return w.nsWindow
+}
+
+func (w *macosWebviewWindow) getDocumentTitle() string {
+	return ""
+}
+
+func (w *macosWebviewWindow) getSource() string {
+	return ""
 }
 
 func (w *macosWebviewWindow) setBackgroundColour(colour RGBA) {

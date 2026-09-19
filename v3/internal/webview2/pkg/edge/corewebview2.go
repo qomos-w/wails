@@ -350,6 +350,32 @@ func (i *ICoreWebView2) GetSource() (string, error) {
 	return source, nil
 }
 
+func (i *ICoreWebView2) GetDocumentTitle() (string, error) {
+	var _title *uint16
+	hr, _, _ := i.vtbl.GetDocumentTitle.Call(
+		uintptr(unsafe.Pointer(i)),
+		uintptr(unsafe.Pointer(&_title)),
+	)
+	if windows.Handle(hr) != windows.S_OK {
+		return "", windows.Errno(hr)
+	}
+	title := windows.UTF16PtrToString(_title)
+	windows.CoTaskMemFree(unsafe.Pointer(_title))
+	return title, nil
+}
+
+func (i *ICoreWebView2) AddDocumentTitleChanged(eventHandler *ICoreWebView2DocumentTitleChangedEventHandler, token *_EventRegistrationToken) error {
+	hr, _, _ := i.vtbl.AddDocumentTitleChanged.Call(
+		uintptr(unsafe.Pointer(i)),
+		uintptr(unsafe.Pointer(eventHandler)),
+		uintptr(unsafe.Pointer(token)),
+	)
+	if windows.Handle(hr) != windows.S_OK {
+		return windows.Errno(hr)
+	}
+	return nil
+}
+
 func (i *ICoreWebView2) GetContainsFullScreenElement() (bool, error) {
 	// BOOL out-params are 4 bytes; receiving into a 1-byte Go bool lets the
 	// callee write 3 bytes out of bounds on the stack.
@@ -381,6 +407,46 @@ func (i *ICoreWebView2) Navigate(url string) error {
 	return nil
 }
 
+func (i *ICoreWebView2) GoBack() error {
+	hr, _, _ := i.vtbl.GoBack.Call(uintptr(unsafe.Pointer(i)))
+	if windows.Handle(hr) != windows.S_OK {
+		return windows.Errno(hr)
+	}
+	return nil
+}
+
+func (i *ICoreWebView2) GoForward() error {
+	hr, _, _ := i.vtbl.GoForward.Call(uintptr(unsafe.Pointer(i)))
+	if windows.Handle(hr) != windows.S_OK {
+		return windows.Errno(hr)
+	}
+	return nil
+}
+
+func (i *ICoreWebView2) GetCanGoBack() (bool, error) {
+	var result bool
+	hr, _, _ := i.vtbl.GetCanGoBack.Call(
+		uintptr(unsafe.Pointer(i)),
+		uintptr(unsafe.Pointer(&result)),
+	)
+	if windows.Handle(hr) != windows.S_OK {
+		return false, windows.Errno(hr)
+	}
+	return result, nil
+}
+
+func (i *ICoreWebView2) GetCanGoForward() (bool, error) {
+	var result bool
+	hr, _, _ := i.vtbl.GetCanGoForward.Call(
+		uintptr(unsafe.Pointer(i)),
+		uintptr(unsafe.Pointer(&result)),
+	)
+	if windows.Handle(hr) != windows.S_OK {
+		return false, windows.Errno(hr)
+	}
+	return result, nil
+}
+
 func (i *ICoreWebView2) NavigateToString(htmlContent string) error {
 	u16Html, err := windows.UTF16PtrFromString(htmlContent)
 	if err != nil {
@@ -395,6 +461,16 @@ func (i *ICoreWebView2) NavigateToString(htmlContent string) error {
 		return windows.Errno(hr)
 	}
 
+	return nil
+}
+
+// Reload reloads the current document. Like Navigate/GoBack/GoForward it is a
+// host-originated navigation primitive that produces a NavigationStarting event.
+func (i *ICoreWebView2) Reload() error {
+	hr, _, _ := i.vtbl.Reload.Call(uintptr(unsafe.Pointer(i)))
+	if windows.Handle(hr) != windows.S_OK {
+		return windows.Errno(hr)
+	}
 	return nil
 }
 

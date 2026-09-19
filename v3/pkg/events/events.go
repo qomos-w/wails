@@ -410,6 +410,7 @@ type windowsEvents struct {
 	ApplicationStarted         ApplicationEventType
 	SystemThemeChanged         ApplicationEventType
 	WebViewNavigationCompleted WindowEventType
+	WebViewNavigationStarting  WindowEventType
 	WindowActive               WindowEventType
 	WindowBackgroundErase      WindowEventType
 	WindowClickActive          WindowEventType
@@ -458,6 +459,7 @@ func newWindowsEvents() windowsEvents {
 		ApplicationStarted:         1206,
 		SystemThemeChanged:         1207,
 		WebViewNavigationCompleted: 1208,
+		WebViewNavigationStarting: 1292,
 		WindowActive:               1209,
 		WindowBackgroundErase:      1210,
 		WindowClickActive:          1211,
@@ -847,29 +849,6 @@ var eventToJS = map[uint]string{
 	1264: "ios:WebViewDidFinishNavigation",
 	1265: "ios:WebViewDidFailNavigation",
 	1266: "ios:WebViewDecidePolicyForNavigationAction",
-	1267: "mac:WebViewWebContentProcessDidTerminate",
-	1268: "android:ActivityCreated",
-	1269: "android:ActivityStarted",
-	1270: "android:ActivityResumed",
-	1271: "android:ActivityPaused",
-	1272: "android:ActivityStopped",
-	1273: "android:ActivityDestroyed",
-	1274: "android:ApplicationLowMemory",
-	1275: "android:WebViewPageStarted",
-	1276: "android:WebViewPageFinished",
-	1277: "ios:BatteryChanged",
-	1278: "ios:NetworkChanged",
-	1279: "ios:ThemeChanged",
-	1280: "ios:ScreenLocked",
-	1281: "ios:ScreenUnlocked",
-	1282: "android:BatteryChanged",
-	1283: "android:NetworkChanged",
-	1284: "android:ThemeChanged",
-	1285: "android:ScreenLocked",
-	1286: "android:ScreenUnlocked",
-	1287: "common:BatteryChanged",
-	1288: "common:NetworkChanged",
-	1289: "common:ScreenLocked",
-	1290: "common:ScreenUnlocked",
 	1291: "common:LowMemory",
+	1292: "windows:WebViewNavigationStarting",
 }

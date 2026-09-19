@@ -368,6 +368,11 @@ func (w *androidWebviewWindow) setURL(_ string) {
 	// Navigation is driven by the Java Activity (loadApplication)
 }
 
+func (w *androidWebviewWindow) goBack()            {}
+func (w *androidWebviewWindow) goForward()         {}
+func (w *androidWebviewWindow) canGoBack() bool    { return false }
+func (w *androidWebviewWindow) canGoForward() bool { return false }
+
 func (w *androidWebviewWindow) showMenuBar() {
 	// Android doesn't have menu bars like desktop platforms
 }

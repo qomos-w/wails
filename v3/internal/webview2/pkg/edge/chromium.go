@@ -72,6 +72,7 @@ type Chromium struct {
 	navigationStarting               *ICoreWebView2NavigationStartingEventHandler
 	navigationCompleted              *ICoreWebView2NavigationCompletedEventHandler
 	processFailed                    *ICoreWebView2ProcessFailedEventHandler
+	documentTitleChanged             *ICoreWebView2DocumentTitleChangedEventHandler
 
 	environment            *ICoreWebView2Environment
 	webview2RuntimeVersion string
@@ -93,12 +94,13 @@ type Chromium struct {
 	MessageCallback                          func(message string, sender *ICoreWebView2, args *ICoreWebView2WebMessageReceivedEventArgs)
 	MessageWithAdditionalObjectsCallback     func(message string, sender *ICoreWebView2, args *ICoreWebView2WebMessageReceivedEventArgs)
 	WebResourceRequestedCallback             func(request *ICoreWebView2WebResourceRequest, args *ICoreWebView2WebResourceRequestedEventArgs)
-	NavigationStartingCallback               func(sender *ICoreWebView2)
+	NavigationStartingCallback               func(sender *ICoreWebView2, args *ICoreWebView2NavigationStartingEventArgs)
 	NavigationCompletedCallback              func(sender *ICoreWebView2, args *ICoreWebView2NavigationCompletedEventArgs)
 	ProcessFailedCallback                    func(sender *ICoreWebView2, args *ICoreWebView2ProcessFailedEventArgs)
 	ContainsFullScreenElementChangedCallback func(sender *ICoreWebView2, args *ICoreWebView2ContainsFullScreenElementChangedEventArgs)
 	AcceleratorKeyCallback                   func(uint) bool
 	CursorChangedCallback                    func(cursor HCURSOR, systemCursorID uint32)
+	DocumentTitleChangedCallback             func(title string)
 
 	// Error handling
 	globalErrorCallback func(error)
@@ -334,6 +336,65 @@ func (e *Chromium) Navigate(url string) {
 		// visible); killing the process is not.
 		log.Printf("[WebView2] Navigate failed: %v", err)
 	}
+}
+
+func (e *Chromium) GoBack() {
+	if e.webview == nil {
+		return
+	}
+	if err := e.webview.GoBack(); err != nil {
+		log.Printf("[WebView2] GoBack failed: %v", err)
+	}
+}
+
+func (e *Chromium) GoForward() {
+	if e.webview == nil {
+		return
+	}
+	if err := e.webview.GoForward(); err != nil {
+		log.Printf("[WebView2] GoForward failed: %v", err)
+	}
+}
+
+func (e *Chromium) CanGoBack() bool {
+	if e.webview == nil {
+		return false
+	}
+	result, err := e.webview.GetCanGoBack()
+	if err != nil {
+		return false
+	}
+	return result
+}
+
+func (e *Chromium) CanGoForward() bool {
+	if e.webview == nil {
+		return false
+	}
+	result, err := e.webview.GetCanGoForward()
+	if err != nil {
+		return false
+	}
+	return result
+}
+
+// Reload reloads the current document via the WebView2 host primitive. It is a
+// host-originated navigation and produces a NavigationStarting event.
+func (e *Chromium) Reload() {
+	if e.webview == nil {
+		return
+	}
+	if err := e.webview.Reload(); err != nil {
+		log.Printf("[WebView2] Reload failed: %v", err)
+	}
+}
+
+// Source returns the current document URL (post-redirect) via GetSource.
+func (e *Chromium) Source() (string, error) {
+	if e.webview == nil {
+		return "", fmt.Errorf("webview not ready")
+	}
+	return e.webview.GetSource()
 }
 
 func (e *Chromium) NavigateToString(content string) {
@@ -585,6 +646,13 @@ func (e *Chromium) initializeController(controller *ICoreWebView2Controller) uin
 	if err != nil {
 		e.errorCallback(err)
 	}
+
+	e.documentTitleChanged = newICoreWebView2DocumentTitleChangedEventHandler(e)
+	err = e.webview.AddDocumentTitleChanged(e.documentTitleChanged, &token)
+	if err != nil {
+		e.errorCallback(err)
+	}
+
 	err = e.webview.AddContainsFullScreenElementChanged(e.containsFullScreenElementChanged, &token)
 	if err != nil {
 		e.errorCallback(err)
@@ -630,6 +698,17 @@ func (e *Chromium) CursorChanged(sender *ICoreWebView2CompositionController, _ *
 	}
 
 	e.CursorChangedCallback(cursor, systemCursorID)
+	return 0
+}
+
+func (e *Chromium) DocumentTitleChanged(sender *ICoreWebView2, args *IUnknown) uintptr {
+	if e.DocumentTitleChangedCallback != nil {
+		title, err := sender.GetDocumentTitle()
+		if err != nil {
+			return 0
+		}
+		e.DocumentTitleChangedCallback(title)
+	}
 	return 0
 }
 
@@ -788,6 +867,14 @@ func (e *Chromium) GetController() *ICoreWebView2Controller {
 	return e.controller
 }
 
+// GetDocumentTitle returns the current document title of the loaded page.
+func (e *Chromium) GetDocumentTitle() (string, error) {
+	if e.webview == nil {
+		return "", fmt.Errorf("webview not ready")
+	}
+	return e.webview.GetDocumentTitle()
+}
+
 // IsReady reports whether the WebView2 controller has been fully initialised.
 // e.controller is assigned partway through CreateCoreWebView2ControllerCompleted,
 // before the controller's COM setup has finished, so a non-nil controller is
@@ -805,16 +892,16 @@ func boolToInt(input bool) int {
 	return 0
 }
 
-func (e *Chromium) NavigationStarting(sender *ICoreWebView2, _ *IUnknown) uintptr {
-	if e.NavigationStartingCallback != nil {
-		e.NavigationStartingCallback(sender)
+func (e *Chromium) NavigationCompleted(sender *ICoreWebView2, args *ICoreWebView2NavigationCompletedEventArgs) uintptr {
+	if e.NavigationCompletedCallback != nil {
+		e.NavigationCompletedCallback(sender, args)
 	}
 	return 0
 }
 
-func (e *Chromium) NavigationCompleted(sender *ICoreWebView2, args *ICoreWebView2NavigationCompletedEventArgs) uintptr {
-	if e.NavigationCompletedCallback != nil {
-		e.NavigationCompletedCallback(sender, args)
+func (e *Chromium) NavigationStarting(sender *ICoreWebView2, args *ICoreWebView2NavigationStartingEventArgs) uintptr {
+	if e.NavigationStartingCallback != nil {
+		e.NavigationStartingCallback(sender, args)
 	}
 	return 0
 }
